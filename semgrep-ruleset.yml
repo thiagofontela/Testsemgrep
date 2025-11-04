@@ -1,34 +1,26 @@
 rules:
-  # MD5 → deve bater no MessageDigest.getInstance("MD5")
   - id: demo-weak-crypto-md5
     languages: [java]
     severity: ERROR
     message: "Criptografia fraca: uso de MD5."
-    metadata: { cwe: "CWE-328", owasp: "A02:2021" }
     pattern: java.security.MessageDigest.getInstance("MD5")
 
-  # HostnameVerifier sempre verdadeiro → deve bater no seu setDefaultHostnameVerifier((h,s)->true)
   - id: demo-insecure-hostname-verifier
     languages: [java]
     severity: ERROR
     message: "HostnameVerifier inseguro: sempre retorna true."
-    metadata: { cwe: "CWE-295", owasp: "A02:2021" }
     pattern: javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true)
 
-  # Chave AWS fake → deve bater na string AKIA...
   - id: demo-aws-key
     languages: [java]
     severity: ERROR
     message: "Possível credencial AWS hardcoded."
-    metadata: { cwe: "CWE-798", owasp: "A02:2021" }
     pattern-regex: 'AKIA[0-9A-Z]{16}'
 
-  # SQLi por concatenação simples → pega executeQuery("..."+userInput+"...")
   - id: demo-sqli-concat
     languages: [java]
     severity: ERROR
     message: "Possível SQL Injection: concatenação de input em query."
-    metadata: { cwe: "CWE-89", owasp: "A03:2021" }
     patterns:
-      - pattern: $ST.executeQuery($Q)
+      - pattern: $S.executeQuery($Q)
       - pattern: $Q = "..."+$X+"..."
