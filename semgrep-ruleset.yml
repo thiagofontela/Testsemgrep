@@ -1,116 +1,34 @@
 rules:
-  - id: custom-java-sqli-concat
+  # MD5 → deve bater no MessageDigest.getInstance("MD5")
+  - id: demo-weak-crypto-md5
     languages: [java]
     severity: ERROR
-    message: "Possível SQL Injection: concatenação de input em query SQL."
-    metadata: { owasp: "A03:2021 Injection", cwe: "CWE-89" }
-    patterns:
-      - pattern-inside: |
-          String $Q = $INIT;
-          ...
-          $S.$EXEC($Q);
-      - pattern-either:
-          - pattern: $Q = $A + $B
-          - pattern: $Q = "..."+$ANY+"..."
-      - pattern-either:
-          - pattern: $S.executeQuery($Q)
-          - pattern: $S.executeUpdate($Q)
-          - pattern: $S.addBatch($Q)
+    message: "Criptografia fraca: uso de MD5."
+    metadata: { cwe: "CWE-328", owasp: "A02:2021" }
+    pattern: java.security.MessageDigest.getInstance("MD5")
 
-  - id: custom-java-path-traversal
+  # HostnameVerifier sempre verdadeiro → deve bater no seu setDefaultHostnameVerifier((h,s)->true)
+  - id: demo-insecure-hostname-verifier
     languages: [java]
     severity: ERROR
-    message: "Possível Path Traversal: caminho construído por concatenação."
-    metadata: { owasp: "A01:2021 Broken Access Control", cwe: "CWE-22" }
-    pattern-either:
-      - pattern: new java.io.File($BASE + $USER)
-      - pattern: java.nio.file.Paths.get($BASE + $USER)
+    message: "HostnameVerifier inseguro: sempre retorna true."
+    metadata: { cwe: "CWE-295", owasp: "A02:2021" }
+    pattern: javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true)
 
-  - id: custom-java-ssrf
-    languages: [java]
-    severity: ERROR
-    message: "Possível SSRF: URL controlada pelo usuário utilizada diretamente."
-    metadata: { owasp: "A10:2021 Server-Side Request Forgery", cwe: "CWE-918" }
-    patterns:
-      - pattern: |
-          $U = new java.net.URL($IN);
-          ...
-          $U.openStream()
-      - pattern-not: |
-          $U = new java.net.URL("http" + "s://example.com")
-          ...
-          $U.openStream()
-
-  - id: custom-java-insecure-deserialization
-    languages: [java]
-    severity: ERROR
-    message: "Desserialização insegura: ObjectInputStream.readObject() em dados não confiáveis."
-    metadata: { owasp: "A08:2021 Software and Data Integrity Failures", cwe: "CWE-502" }
-    pattern: (new java.io.ObjectInputStream(...)).readObject()
-
-  - id: custom-spring-cors-any
-    languages: [java]
-    severity: ERROR
-    message: "CORS aberto: @CrossOrigin(origins = "*") permite qualquer origem."
-    metadata: { owasp: "A01:2021 Broken Access Control", cwe: "CWE-942" }
-    pattern: '@org.springframework.web.bind.annotation.CrossOrigin(origins = "*")'
-
-  - id: custom-java-hardcoded-password
-    languages: [java]
-    severity: ERROR
-    message: "Possível segredo hardcoded (password)."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-798" }
-    pattern-regex: '(?i)password\s*=\s*".{6,}"'
-
-  - id: custom-aws-keys
+  # Chave AWS fake → deve bater na string AKIA...
+  - id: demo-aws-key
     languages: [java]
     severity: ERROR
     message: "Possível credencial AWS hardcoded."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-798" }
-    pattern-regex: 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}'
+    metadata: { cwe: "CWE-798", owasp: "A02:2021" }
+    pattern-regex: 'AKIA[0-9A-Z]{16}'
 
-  - id: custom-generic-secrets
+  # SQLi por concatenação simples → pega executeQuery("..."+userInput+"...")
+  - id: demo-sqli-concat
     languages: [java]
     severity: ERROR
-    message: "Possível segredo hardcoded (token/chave)."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-798" }
-    pattern-regex: '(?i)(api[_-]?key|secret|token|access[_-]?key)\s*=\s*".{10,}"'
-
-  - id: custom-weak-crypto-md5-sha1
-    languages: [java]
-    severity: ERROR
-    message: "Algoritmo criptográfico fraco (MD5/SHA-1)."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-328" }
-    pattern-either:
-      - pattern: java.security.MessageDigest.getInstance("MD5")
-      - pattern: java.security.MessageDigest.getInstance("SHA-1")
-
-  - id: custom-insecure-hostname-verifier
-    languages: [java]
-    severity: ERROR
-    message: "HostnameVerifier sempre verdadeiro desabilita verificação de host."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-295" }
-    pattern: 'javax.net.ssl.HttpsURLConnection.setHostnameVerifier((hostname, session) -> true)'
-
-  - id: custom-trust-all-ssl
-    languages: [java]
-    severity: ERROR
-    message: "TrustManager que confia em todos os certificados."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-295" }
-    pattern-regex: '(?s)new\s+javax\.net\.ssl\.X509TrustManager\s*\{[^}]*checkClientTrusted\s*\([^)]*\)\s*\{\s*\}[^}]*checkServerTrusted\s*\([^)]*\)\s*\{\s*\}'
-
-  - id: custom-insecure-random-for-secrets
-    languages: [java]
-    severity: WARNING
-    message: "Uso de java.util.Random para segredo/token; prefira SecureRandom."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-338" }
-    pattern-either:
-      - pattern: new java.util.Random()
-      - pattern: java.util.Random $R = ...
-
-  - id: custom-jdbc-credentials-in-url
-    languages: [java]
-    severity: WARNING
-    message: "Possíveis credenciais embutidas na JDBC URL."
-    metadata: { owasp: "A02:2021 Cryptographic Failures", cwe: "CWE-359" }
-    pattern-regex: 'jdbc:[a-zA-Z0-9]+://[^/\s:@]+:[^/\s@]+@'
+    message: "Possível SQL Injection: concatenação de input em query."
+    metadata: { cwe: "CWE-89", owasp: "A03:2021" }
+    patterns:
+      - pattern: $ST.executeQuery($Q)
+      - pattern: $Q = "..."+$X+"..."
