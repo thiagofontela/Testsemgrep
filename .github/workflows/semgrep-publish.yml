@@ -1,45 +1,118 @@
-- name: Run Semgrep (debug mode - produce full JSON & show outputs)
-  shell: bash
-  run: |
-    set -eux
+name: semgrep-publish
 
-    echo "Listing repo and Java files..."
-    pwd
-    ls -la
-    find src -type f -name '*.java' -print || true
+on:
+  workflow_dispatch: {}
 
-    echo "Semgrep version:"
-    docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep --version || true
+permissions:
+  contents: read
+  actions: read
+  security-events: write
 
-    echo "Running semgrep scan -> sarif + full json"
-    docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
-      --config /src/semgrep-ruleset.yml \
-      --include src/main/java \
-      --sarif --output /src/semgrep.sarif \
-      --json --output /src/semgrep.full.json || true
+jobs:
+  publish:
+    runs-on: ubuntu-latest
 
-    echo "Files produced:"
-    ls -lh semgrep.sarif semgrep.full.json semgrep.report.json || true
+    steps:
+      - uses: actions/checkout@v4
 
-    echo "---- semgrep.full.json (first 4000 chars) ----"
-    if [ -f semgrep.full.json ]; then
-      head -c 4000 semgrep.full.json || true
-      echo; echo "---- full json length ----"
-      wc -c semgrep.full.json || true
-    else
-      echo "semgrep.full.json not found"
-    fi
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-    echo "---- semgrep.sarif (jq summary) ----"
-    if [ -f semgrep.sarif ]; then
-      jq '.runs[].tool.driver.name, (.runs[]?.results | length)' semgrep.sarif || true
-      jq '.runs[]?.results[]? | {ruleId, message: .message.text, file: .locations[0]?.physicalLocation?.artifactLocation?.uri, line: .locations[0]?.physicalLocation?.region?.startLine}' semgrep.sarif | sed -n '1,200p' || true
-    else
-      echo "semgrep.sarif not found"
-    fi
+      - name: Run Semgrep (debug mode - produce full JSON & show outputs)
+        shell: bash
+        run: |
+          set -eux
 
-    echo "---- semgrep.report.json (our summarized JSON) ----"
-    jq '.' semgrep.report.json || echo "semgrep.report.json missing or empty"
+          echo "=== Repository tree ==="
+          pwd
+          ls -la
+          echo
+          echo "=== Java files under src ==="
+          find src -type f -name '*.java' -print || true
+          echo "========================"
 
-    # keep SARIF even if empty (no fail)
-    true
+          echo "Semgrep version (docker image):"
+          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep --version || true
+
+          echo "Running semgrep scan -> sarif + full json"
+          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
+            --config /src/semgrep-ruleset.yml \
+            --config p/java \
+            --config p/spring \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --config p/secrets \
+            --include src/main/java \
+            --sarif --output /src/semgrep.sarif \
+            --json --output /src/semgrep.full.json || true
+
+          echo
+          echo "Files produced (sizes):"
+          ls -lh semgrep.sarif semgrep.full.json semgrep.report.json || true
+          echo
+
+          if [ -f semgrep.full.json ]; then
+            echo "---- semgrep.full.json (first 4000 chars) ----"
+            head -c 4000 semgrep.full.json || true
+            echo
+            echo "---- semgrep.full.json length ----"
+            wc -c semgrep.full.json || true
+          else
+            echo "semgrep.full.json not found"
+          fi
+
+          if [ -f semgrep.sarif ]; then
+            echo "---- semgrep.sarif tool name and result counts ----"
+            jq '.runs[].tool.driver.name, (.runs[]?.results | length)' semgrep.sarif || true
+            echo "---- semgrep.sarif first results (up to 200 items) ----"
+            jq '.runs[]?.results[]? | {ruleId, message: .message.text, file: .locations[0]?.physicalLocation?.artifactLocation?.uri, line: .locations[0]?.physicalLocation?.region?.startLine}' semgrep.sarif | sed -n '1,200p' || true
+          else
+            echo "semgrep.sarif not found"
+          fi
+
+          echo "---- semgrep.report.json ----"
+          if [ -f semgrep.report.json ]; then
+            jq '.' semgrep.report.json || true
+          else
+            echo "semgrep.report.json not found"
+          fi
+
+      - name: Ensure valid SARIF
+        shell: bash
+        run: |
+          # If semgrep.sarif is missing or invalid, create a minimal valid SARIF so upload won't fail
+          if [ ! -s semgrep.sarif ] || ! jq -e '.version and .runs[0].tool.driver.name' semgrep.sarif >/dev/null 2>&1; then
+            echo "Creating minimal valid semgrep.sarif fallback"
+            jq -n '{
+              version:"2.1.0",
+              runs:[{
+                tool:{driver:{name:"semgrep",informationUri:"https://semgrep.dev"}},
+                results:[]
+              }]
+            }' > semgrep.sarif
+          fi
+
+      - name: Debug SARIF size and count
+        shell: bash
+        run: |
+          ls -lh semgrep.sarif semgrep.report.json || true
+          echo "SARIF results:"
+          jq '([.runs[]?.results[]?] | length) as $n | "Results: \($n)"' semgrep.sarif || true
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Upload artifacts (SARIF + JSON)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-reports
+          path: |
+            semgrep.sarif
+            semgrep.full.json
+            semgrep.report.json
+          if-no-files-found: warn
