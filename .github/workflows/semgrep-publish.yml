@@ -13,23 +13,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Run Semgrep (debug mode - produce full JSON & show outputs)
+      - name: Run Semgrep (debug mode - sarif + full json)
         shell: bash
         run: |
           set -eux
 
-          echo "=== Repository tree ==="
-          pwd
-          ls -la
-          echo
           echo "=== Java files under src ==="
           find src -type f -name '*.java' -print || true
-          echo "========================"
 
           echo "Semgrep version (docker image):"
           docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep --version || true
@@ -46,41 +42,20 @@ jobs:
             --sarif --output /src/semgrep.sarif \
             --json --output /src/semgrep.full.json || true
 
-          echo
           echo "Files produced (sizes):"
-          ls -lh semgrep.sarif semgrep.full.json semgrep.report.json || true
-          echo
+          ls -lh semgrep.sarif semgrep.full.json || true
 
-          if [ -f semgrep.full.json ]; then
-            echo "---- semgrep.full.json (first 4000 chars) ----"
-            head -c 4000 semgrep.full.json || true
-            echo
-            echo "---- semgrep.full.json length ----"
-            wc -c semgrep.full.json || true
-          else
-            echo "semgrep.full.json not found"
-          fi
+          echo "---- semgrep.full.json (first 2000 chars) ----"
+          if [ -f semgrep.full.json ]; then head -c 2000 semgrep.full.json || true; echo; fi
 
+          echo "---- semgrep.sarif quick summary ----"
           if [ -f semgrep.sarif ]; then
-            echo "---- semgrep.sarif tool name and result counts ----"
             jq '.runs[].tool.driver.name, (.runs[]?.results | length)' semgrep.sarif || true
-            echo "---- semgrep.sarif first results (up to 200 items) ----"
-            jq '.runs[]?.results[]? | {ruleId, message: .message.text, file: .locations[0]?.physicalLocation?.artifactLocation?.uri, line: .locations[0]?.physicalLocation?.region?.startLine}' semgrep.sarif | sed -n '1,200p' || true
-          else
-            echo "semgrep.sarif not found"
-          fi
-
-          echo "---- semgrep.report.json ----"
-          if [ -f semgrep.report.json ]; then
-            jq '.' semgrep.report.json || true
-          else
-            echo "semgrep.report.json not found"
           fi
 
       - name: Ensure valid SARIF
         shell: bash
         run: |
-          # If semgrep.sarif is missing or invalid, create a minimal valid SARIF so upload won't fail
           if [ ! -s semgrep.sarif ] || ! jq -e '.version and .runs[0].tool.driver.name' semgrep.sarif >/dev/null 2>&1; then
             echo "Creating minimal valid semgrep.sarif fallback"
             jq -n '{
@@ -95,7 +70,7 @@ jobs:
       - name: Debug SARIF size and count
         shell: bash
         run: |
-          ls -lh semgrep.sarif semgrep.report.json || true
+          ls -lh semgrep.sarif || true
           echo "SARIF results:"
           jq '([.runs[]?.results[]?] | length) as $n | "Results: \($n)"' semgrep.sarif || true
 
@@ -114,5 +89,4 @@ jobs:
           path: |
             semgrep.sarif
             semgrep.full.json
-            semgrep.report.json
           if-no-files-found: warn
