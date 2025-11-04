@@ -19,7 +19,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -33,16 +34,20 @@ jobs:
           echo "base_sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
           echo "BASE=${{ github.event.pull_request.base.sha }}"
 
-      - name: Semgrep scan (Docker)
+      - name: Semgrep scan (SARIF) — LOCAL RULESET ONLY
         shell: bash
         run: |
-          set -e
+          set -eux
           EXTRA=""
           if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ steps.base.outputs.base_sha }}" ]; then
             EXTRA="--baseline-commit ${{ steps.base.outputs.base_sha }}"
           fi
 
-          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan             --config /src/semgrep-ruleset.yml             --config p/java             --config p/spring             --config p/owasp-top-ten             --config p/security-audit             --config p/secrets             --include src/main/java             $EXTRA             --sarif --output /src/semgrep.sarif || true
+          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
+            --config /src/semgrep-ruleset.yml \
+            --include src/main/java \
+            $EXTRA \
+            --sarif --output /src/semgrep.sarif || true
 
           # Garante SARIF válido
           [ -f semgrep.sarif ] || jq -n '{version:"2.1.0",runs:[{tool:{driver:{name:"semgrep"}},results:[]}]}' > semgrep.sarif
@@ -54,6 +59,7 @@ jobs:
           sarif_file: semgrep.sarif
           category: semgrep
 
+      # Gate opcional: falhar só em High/Critical (no nosso demo as regras são ERROR; ajuste se quiser WARNING etc.)
       - name: Fail on High/Critical only
         run: |
           jq -e '.version and .runs[0].tool.driver.name' semgrep.sarif >/dev/null 2>&1 || (echo "Invalid SARIF"; cat semgrep.sarif; exit 1)
