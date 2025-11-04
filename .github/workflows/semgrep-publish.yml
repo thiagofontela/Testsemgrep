@@ -11,38 +11,30 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Show tree (debug)
+      - name: Run Semgrep (gera SARIF e JSON)
         run: |
-          echo "Repository tree:"
-          ls -R
+          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
+            --config /src/semgrep-ruleset.yml \
+            --config p/java \
+            --config p/spring \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --config p/secrets \
+            --include src/main/java \
+            --sarif --output /src/semgrep.sarif \
+            --json --output /src/semgrep.full.json || true
 
-      - name: Run Semgrep (gera SARIF)
-        shell: bash
-        run: |
-          set -x
-          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep --version || true
-          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan             --config /src/semgrep-ruleset.yml             --config p/java             --config p/spring             --config p/owasp-top-ten             --config p/security-audit             --config p/secrets             --include src/main/java             --sarif --output /src/semgrep.sarif || true
+          # Se por algum motivo o SARIF não vier, garante arquivo vazio
+          [ -f semgrep.sarif ] || echo '{"runs":[{"results":[]}]}'> semgrep.sarif
 
-          # Fallback: se SARIF ausente/ inválido, cria um SARIF vazio VÁLIDO
-          if [ ! -s semgrep.sarif ] || ! jq -e '.version and .runs[0].tool.driver.name' semgrep.sarif >/dev/null 2>&1; then
-            jq -n '{
-              version:"2.1.0",
-              runs:[{
-                tool:{driver:{name:"semgrep",informationUri:"https://semgrep.dev"}},
-                results:[]
-              }]
-            }' > semgrep.sarif
-          fi
-
-          # Resumo legível a partir do SARIF
-          jq '[
+          # Gera um resumo legível (todas as runs)
+          (jq '[
                 .runs[]?.results[]? |
                 {
                   ruleId,
@@ -51,12 +43,11 @@ jobs:
                   file: .locations[0]?.physicalLocation?.artifactLocation?.uri,
                   line: .locations[0]?.physicalLocation?.region?.startLine
                 }
-              ]' semgrep.sarif > semgrep.report.json || echo '[]' > semgrep.report.json
+              ]' semgrep.sarif > semgrep.report.json) || echo '[]' > semgrep.report.json
 
       - name: Debug SARIF size and count
-        shell: bash
         run: |
-          ls -lh semgrep.sarif semgrep.report.json || true
+          ls -lh semgrep.sarif semgrep.report.json semgrep.full.json || true
           echo "SARIF results:"
           jq '([.runs[]?.results[]?] | length) as $n | "Results: \($n)"' semgrep.sarif
 
@@ -66,6 +57,9 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+          # Ajuste refs/heads/main se sua default branch tiver outro nome
+          ref: refs/heads/main
+          sha: ${{ github.sha }}
 
       - name: Upload artifacts (SARIF + JSON)
         if: always()
@@ -75,4 +69,6 @@ jobs:
           path: |
             semgrep.sarif
             semgrep.report.json
+            semgrep.full.json
           if-no-files-found: warn
+
