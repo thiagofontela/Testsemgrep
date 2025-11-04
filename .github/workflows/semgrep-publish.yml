@@ -19,7 +19,7 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Run Semgrep (debug mode - sarif + full json)
+      - name: Run Semgrep (debug + SARIF + JSON)
         shell: bash
         run: |
           set -eux
@@ -27,10 +27,10 @@ jobs:
           echo "=== Java files under src ==="
           find src -type f -name '*.java' -print || true
 
-          echo "Semgrep version (docker image):"
+          echo "Semgrep version:"
           docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep --version || true
 
-          echo "Running semgrep scan -> sarif + full json"
+          echo "Running semgrep scan -> SARIF only"
           docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
             --config /src/semgrep-ruleset.yml \
             --config p/java \
@@ -39,19 +39,30 @@ jobs:
             --config p/security-audit \
             --config p/secrets \
             --include src/main/java \
-            --sarif --output /src/semgrep.sarif \
+            --sarif --output /src/semgrep.sarif || true
+
+          echo "Running semgrep scan -> JSON only"
+          docker run --rm -v "$GITHUB_WORKSPACE":/src semgrep/semgrep:latest semgrep scan \
+            --config /src/semgrep-ruleset.yml \
+            --config p/java \
+            --config p/spring \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --config p/secrets \
+            --include src/main/java \
             --json --output /src/semgrep.full.json || true
 
           echo "Files produced (sizes):"
           ls -lh semgrep.sarif semgrep.full.json || true
 
-          echo "---- semgrep.full.json (first 2000 chars) ----"
-          if [ -f semgrep.full.json ]; then head -c 2000 semgrep.full.json || true; echo; fi
-
           echo "---- semgrep.sarif quick summary ----"
           if [ -f semgrep.sarif ]; then
             jq '.runs[].tool.driver.name, (.runs[]?.results | length)' semgrep.sarif || true
+            jq '.runs[]?.results[]? | {ruleId, message: .message.text, file: .locations[0]?.physicalLocation?.artifactLocation?.uri, line: .locations[0]?.physicalLocation?.region?.startLine}' semgrep.sarif | sed -n '1,200p' || true
           fi
+
+          echo "---- semgrep.full.json (first 2000 chars) ----"
+          if [ -f semgrep.full.json ]; then head -c 2000 semgrep.full.json || true; echo; fi
 
       - name: Ensure valid SARIF
         shell: bash
