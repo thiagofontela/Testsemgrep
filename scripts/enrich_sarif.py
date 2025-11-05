@@ -41,6 +41,31 @@ MAP = {
   }
 }
 
+def ensure_rule_object(run, rule_id):
+    """Garante que a regra exista em driver.rules e retorna o dict dela."""
+    tool = run.setdefault("tool", {}).setdefault("driver", {})
+    rules = tool.setdefault("rules", [])
+    for rr in rules:
+        if rr.get("id") == rule_id:
+            return rr
+    rr = {"id": rule_id, "properties": {"tags": []}}
+    rules.append(rr)
+    return rr
+
+def add_github_recognized_tags(rule_obj, cwe_code: str, owasp_id: str):
+    """Adiciona tags padrão que o GitHub reconhece para mostrar badges."""
+    tags = set(rule_obj.get("properties", {}).get("tags", []))
+    if cwe_code and cwe_code.startswith("CWE-"):
+        cwe_num = cwe_code.split("-", 1)[1]
+        tags.add(f"external/cwe/cwe-{cwe_num.lower()}")
+    # OWASP Top 10 2021 → formato external/owasp/2021/A03
+    if owasp_id and "A" in owasp_id and "2021" in owasp_id:
+        # ex.: "A03:2021 Injection" -> "A03"
+        a_code = owasp_id.split()[0].split(":")[0]  # "A03:2021" -> "A03"
+        tags.add(f"external/owasp/2021/{a_code}")
+    rule_obj.setdefault("properties", {})["tags"] = sorted(tags)
+
+
 # Mapeia level SARIF textual -> severidade numérica (para ordenar no GitHub)
 LEVEL_TO_SECURITY_SEVERITY = {
   "error": "8.5",
