@@ -52,6 +52,11 @@ jobs:
           # Garante SARIF válido
           [ -f semgrep.sarif ] || jq -n '{version:"2.1.0",runs:[{tool:{driver:{name:"semgrep"}},results:[]}]}' > semgrep.sarif
 
+      - name: Enrich SARIF (PR) with CWE/OWASP & recommendations
+        run: |
+          python3 scripts/enrich_sarif.py
+          mv semgrep.enriched.sarif semgrep.sarif
+          
       - name: Upload SARIF to Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3
