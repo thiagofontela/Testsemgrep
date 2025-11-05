@@ -116,6 +116,18 @@ def enrich(sarif):
 
             if rule_id in MAP:
                 m = MAP[rule_id]
+              # Garante badge de CWE/OWASP no topo do alerta
+rule_obj = ensure_rule_object(run, rule_id)
+add_github_recognized_tags(rule_obj, m.get("cwe"), m.get("owasp"))
+# Opcional: colocar help text rico na regra
+help_text = []
+if m.get("remediation"):
+    help_text.append(f"**Remediação:** {m['remediation']}")
+if m.get("references"):
+    help_text.append("\n**Referências:**\n" + "\n".join(f"- {u}" for u in m["references"]))
+if help_text:
+    rule_obj["help"] = {"text": "\n".join(help_text), "markdown": "\n".join(help_text)}
+
                 props["cwe"] = m["cwe"]
                 props["owasp"] = m["owasp"]
                 props["references"] = m["references"]
